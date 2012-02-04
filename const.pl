@@ -37,9 +37,32 @@ my $fhx;
 open $fhc, '>', 'const.c.inc' or die;
 open $fhx, '>', 'const.xs.inc' or die;
 open $fhh, '>', 'const.h' or die;
+select $fhh;
+print <<'EOT';
+#ifndef _const_h
+#define _const_h
+#define XSRETURN_QV(s,v)	STMT_START { XST_mQV( 0,s,v); XSRETURN(1); } STMT_END
+#define XSRETURN_QV2(v,c)	STMT_START { XST_mQV2(0,v,c); XSRETURN(1); } STMT_END
+
+#define PUSHq(v,p,l)		mXPUSHs(newSVqvn(p,l,v))
+
+#define XST_mQV(i,s,v)		(ST(i) = sv_2mortal(newSVqv(s,v)))
+#define XST_mQV2(i,v,c)		(ST(i) = sv_2mortal(newSVqv2(v,c)))
+#define XST_mQVn(i,s,l,v)	(ST(i) = sv_2mortal(newSVqvn(s,l,v)))
+
+#define newSVqv(s,v)		P_newSVqv(aTHX_ s,v)
+#define newSVqvn(s,l,v)		P_newSVqvn(aTHX_ s,l,v)
+#define newSVqv2(v,c)		P_newSVqv2(aTHX_ v,c)
+#define sv_setqvn(a,b,c,d)	P_sv_setqvn(aTHX_ a,b,c,d)
+
+void P_sv_setqvn(pTHX_ SV* m, int i, const char* s, STRLEN len);
+SV* P_newSVqv(pTHX_ const char* s, int i);
+SV* P_newSVqv2(pTHX_ int i, const char* (*func)(int i,int* len));
+SV* P_newSVqvn(pTHX_ const char* s, STRLEN len, int i);
+SV* Q_intorconst(pTHX_ SV* s);
+
+EOT
 select $fhc;
-print {$fhh} "#ifndef _const_h\n";
-print {$fhh} "#define _const_h\n";
 foreach my $a (keys %context){
 	print {$fhh} "const char* QContext_$a(int i, int* len);\n";
 	print {$fhx} "void\nQContext_$a(int i)\n\tPROTOTYPE: \$;\n\tCODE:\n\t\tXSRETURN_QV2(i, &QContext_$a);\n\n";
@@ -94,7 +117,7 @@ if(eval {require Local::ExtUtils::Constant; 1}) {
 		C_FILE		=> 'const-c.inc',
 		XS_FILE		=> 'const-xs.inc',
 	);
-} else {
+}else{
 	use File::Copy;
 	use File::Spec;
 	foreach my $file ('const-c.inc', 'const-xs.inc') {

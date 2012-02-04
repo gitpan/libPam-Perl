@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               libPam-Perl
-version:            0.003
+version:            0.008
 abstract:           Base module for writing Pam Modules in Perl
 author:
     - Ben Hildred<bhildred@cpan.org>

@@ -11,6 +11,10 @@ use Config;
 # the contents of the Makefile that is written.
 
 $Verbose=1;
+unless(-f "/usr/lib/libpam.a"){
+	warn "can't find /usr/lib/libpam.a";
+	exit 0;
+}
 WriteMakefile(
 	NAME		=> 'Authen::PAM::Module',
 	VERSION_FROM	=> 'lib/Authen/PAM/Module.pm', # finds $VERSION
@@ -21,17 +25,19 @@ WriteMakefile(
 	LIBS		=> ['-lperl -ldl -lm -lpthread -lc -lcrypt'], # e.g., '-lm'
 	DEFINE		=> '-D_REENTRANT -D_GNU_SOURCE -DDEBIAN -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64', # e.g., '-DHAVE_SOMETHING'
 	INC		=> perl_inc(),
-	OBJECT		=> 'pam_perl.o /usr/lib/libpam.a', # link all the C files too
-	#OBJECT		=> '$(O_FILES)', # link all the C files too
+	#OBJECT		=> 'pam_perl.o const.o /usr/lib/libpam.a', # link all the C files too
+	OBJECT		=> '$(O_FILES) /usr/lib/libpam.a', # link all the C files too
 	DISTNAME	=> 'libPam-Perl',
 	CCFLAGS		=> '-Wall -Wextra -fno-strict-aliasing -pipe -fstack-protector',
 	LDFLAGS		=> '-Wl,-E',
-	PERL_MALLOC_OK	=> 1,
+#	PERL_MALLOC_OK	=> 1,
 	depend		=> {
-		'$(FIRST_MAKEFILE)' => '$(VERSION_FROM)',
-		'pam_perl.c'	=> 'pam_perl.xs const-xs.inc const.xs.inc',
-		'pam_perl.o'	=> 'pam_perl.c const-c.inc const.h const.c.inc',
-
+#		'$(FIRST_MAKEFILE)' => '$(VERSION_FROM)',
+		'Module.c'	=> 'Module.xs const-xs.inc const.xs.inc',
+		'Module.o'	=> 'Module.c const-c.inc const.h',
+		'const.o'	=> 'const.c const.h const.c.inc',
+		'pam_perl.o'	=> 'pam_perl.c const.h',
+		'const.h'	=> 'const.pl',
 	}
 );
 #sub MY::top_targets {
@@ -40,8 +46,6 @@ WriteMakefile(
 #}
 sub MY::postamble {
 '
-
-pam_perl.o : pam_perl.c const-c.inc const.h const.c.inc
 
 const.h : const.pl
 	./const.pl

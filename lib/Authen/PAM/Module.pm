@@ -74,7 +74,7 @@ our @EXPORT_OK = map {@{$EXPORT_TAGS{$_}}} keys %EXPORT_TAGS;
 $EXPORT_TAGS{all}=\@EXPORT_OK;
 
 
-our $VERSION = '0.003';
+our $VERSION = '0.008';
 
 sub AUTOLOAD {
 	# This AUTOLOAD is used to 'autoload' constants from the constant()
@@ -83,8 +83,10 @@ sub AUTOLOAD {
 	my $constname;
 	our $AUTOLOAD;
 	($constname = $AUTOLOAD) =~ s/.*:://;
-	warn  "&Authen::PAM::Module::constant not defined ($AUTOLOAD)" if $constname eq 'constant';
-	croak "&Authen::PAM::Module::constant not defined" if $constname eq 'constant';
+	if('constant'eq$constname){
+		warn  "&Authen::PAM::Module::constant not defined ($AUTOLOAD)";
+		croak "&Authen::PAM::Module::constant not defined";
+	}
 	my ($error, $val) = constant($constname);
 	if ($error && $error =~ /is not a valid Authen::PAM::Module macro/) {
 		($error, $val) = constant('PAM_'.$constname);
@@ -96,16 +98,16 @@ sub AUTOLOAD {
 		#XXX if ($] >= 5.00561) {
 		#XXX	*$AUTOLOAD = sub () { $val };
 		#XXX } else {
-			*$AUTOLOAD = sub { $val };
+		*$AUTOLOAD = sub { $val };
 		#XXX }
 	}
 	goto &$AUTOLOAD;
 }
-
-#XXX should we delete next two lines? treat as static?
-# can we?
-require XSLoader;
-XSLoader::load('Authen::PAM::Module', $VERSION);
+print(defined &Authen::PAM::Module::constant);
+unless(defined &Authen::PAM::Module::constant){
+	require XSLoader;
+	XSLoader::load('Authen::PAM::Module', $VERSION);
+}
 
 package Authen::PAM::Module::_err;
 
@@ -113,12 +115,16 @@ sub PRINT {
 	my $self = shift;
 	$,=''unless defined $,;
 	$\=''unless defined $\;
-	my @ret=$$self->conv([Authen::PAM::Module::PAM_ERROR_MSG(),join($,,@_).$\]);
+	return $$self->conv([Authen::PAM::Module::PAM_ERROR_MSG(),join($,,@_).$\]) if($$self&&@_);
+	warn @_;
 }
 
 sub UNTIE {
 	my $self = shift;
-	$$self=undef;
+	my $count = shift;
+
+	Carp::carp "untie attempted while $count inner references still exist" if $count>1;
+	$self=undef;
 	warn "@_" if @_;
 	return "0 but true";
 }
@@ -141,13 +147,23 @@ sub UNTIE {
 
 package Authen::PAM::Module::_out;
 
-use Carp;
-
 sub UNTIE {
 	my $self = shift;
-	$$self=undef;
+	my $count = shift;
+
+	Carp::carp "untie attempted while $count inner references still exist" if $count>1;
+	$self=undef;
 	warn "@_" if @_;
 	return "0 but true";
+}
+
+sub PRINT {
+	my $self = shift;
+	$,=''unless defined $,;
+	$\=''unless defined $\;
+	@_ = grep {defined} @_;
+	return $$self->conv([Authen::PAM::Module::PAM_TEXT_INFO(),join($,,@_).$\]) if($$self&&@_);
+	print @_ if @_;
 }
 
 #A class implementing a file handle should have the following methods:
@@ -156,7 +172,6 @@ sub UNTIE {
 	#READLINE this
 	#GETC this
 	#WRITE this, scalar, length, offset
-	#PRINT this, LIST
 	#PRINTF this, format, LIST
 	#BINMODE this
 	#EOF this
@@ -167,23 +182,17 @@ sub UNTIE {
 	#CLOSE this
 	#DESTROY this
 
-sub PRINT {
-	my $self = shift;
-	$,=''unless defined $,;
-	$\=''unless defined $\;
-	my @ret=$$self->conv([Authen::PAM::Module::PAM_TEXT_INFO(),join($,,@_).$\]);
-}
-
 package Authen::PAM::Module::_user;
-
-use Carp;
 
 #sub TIESCALAR {my($c,$p)=@_; return bless \$p, $c if($p);}
 #sub TIEBAD{	return bless \$_[1], $_[0] if($_[1]);}
 
 sub UNTIE {
 	my $self = shift;
-	$$self=undef;
+	my $count = shift;
+
+	Carp::carp "untie attempted while $count inner references still exist" if $count>1;
+	$self=undef;
 	warn "@_" if @_;
 	return "0 but true";
 }
@@ -193,23 +202,6 @@ sub UNTIE {
 	#DESTROY this
 
 package Authen::PAM::Module::_item;
-
-use Carp;
-
-sub STORE {
-	my $self=shift;
-	my $arg=shift;
-	my $val=shift;
-	my $ret;
-	if($arg+0 eq$arg){
-		$ret=Authen::PAM::Module::put_item($$self->{pamh},$arg,$val);
-	}else{
-		$ret=Authen::PAM::Module::put_item($$self->{pamh},Authen::PAM::Module::map_constant($arg),$val);
-	}
-	return undef if($ret == PAM_BAD_ITEM);
-	die unless($ret==PAM_SUCCESS);
-	return $val;
-}
 
 sub EXISTS {
 	shift;my$_=shift;
@@ -232,88 +224,111 @@ sub EXISTS {
 
 sub UNTIE {
 	my $self = shift;
-	$$self=undef;
-	#warn "@_" if @_;
+	my $count = shift;
+
+	Carp::carp "untie attempted while $count inner references still exist" if $count>1;
+	$self=undef;
+	warn "@_" if @_;
 	return "0 but true";
 }
 
-#A class implementing a hash should have the following methods:
-	#DELETE this, key
-	#CLEAR this
-	#FIRSTKEY this
-	#NEXTKEY this, lastkey
-	#SCALAR this
-	#DESTROY this
-
-use Carp;
 sub DELETE {
 	my $self=shift;
 	my $arg=shift;
-	carp 'Can not delete from list of pam items.';
+	Carp::carp 'Can not delete from list of pam items.';
 	return undef;
 }
 
-package Authen::PAM::Module::_env;
+sub FIRSTKEY {
+	my $self=shift;
+	return Authen::PAM::Module::QContext_item(1);
+}
 
-use Carp;
+sub NEXTKEY {
+	my $self=shift;
+	my $arg=shift;
+	return undef if $arg >=13;
+	return Authen::PAM::Module::QContext_item($arg+1);
+}
+
+sub SCALAR {
+	return 1;
+}
 
 #A class implementing a hash should have the following methods:
 	#CLEAR this
-	#FIRSTKEY this
-	#NEXTKEY this, lastkey
-	#SCALAR this
 	#DESTROY this
-	#UNTIE this
 
-sub FETCH {
-	my $self=shift;
-	my $arg=shift;
-	return $$self->{internal}{env}{$arg} if defined $$self->{internal}{env}{$arg};
-	return $$self->{internal}{env}{$arg}=Authen::PAM::Module::getenv($$self->{pamh},$arg);;
-}
+package Authen::PAM::Module::_env;
 
 sub STORE {
 	my $self=shift;
 	my $arg=shift;
-	$$self->{internal}{env}{$arg}=shift;
-	Authen::PAM::Module::putenv($$self->{pamh},"$arg=".$$self->{internal}{env}{$arg});
-	return $$self->{internal}{env}{$arg};
-}
-
-sub DELETE {
-	my $self=shift;
-	my $arg=shift;
-	$$self->{internal}{env}{$arg}=undef;
-	Authen::PAM::Module::putenv($$self->{pamh},"$arg");
-	return $$self->{internal}{env}{$arg};
+	my $val=shift;
+	Authen::PAM::Module::putenv($$self->{pamh},"$arg=".$val);
+	return $val;
 }
 
 sub EXISTS {
-	return defined FETCH @_;
+	my $self=shift;
+	my $arg=shift;
+	return defined FETCH $self,$arg;
 }
 
 sub UNTIE {
 	my $self = shift;
 	my $count = shift;
 
-	confess "wrong type" unless ref $self;
-	carp "untie attempted while $count inner references still exist" if $count;
-	$$self=undef;
+	Carp::confess "wrong type" unless ref $self;
+	Carp::carp "untie attempted while $count inner references still exist" if $count>1;
+	$self=undef;
 	warn "@_" if @_;
 	return "0 but true";
 }
 
-package Authen::PAM::Module;
+sub FIRSTKEY {
+	my $self=shift;
 
-use Carp;
+	$$self->{list}=[map {s/=.*$//;$_} Authen::PAM::Module::getenvlist($$self->{pamh})];
+	return pop @{$$self->{list}};
+}
+
+sub NEXTKEY {
+	my $self=shift;
+	return pop @{$$self->{list}};
+}
+
+#A class implementing a hash should have the following methods:
+	#CLEAR this
+	#SCALAR this
+	#DESTROY this
+
+sub SCALAR {
+	return 1;
+}
+
+package Authen::PAM::Module::_flag;
+
+sub TIEHASH($\$){	return bless ($_[1], (ref($_[0])||$_[0]));}
+sub FETCH($$){		return ($$_[0] & $_[1])?1:0;}
+sub SCALAR($){		return $$_[0];}
+sub FIRSTKEY($){	return 1;}
+sub NEXTKEY($$){	return $_[2]<<1;}
+
+#A class implementing a hash should have the following methods:
+	#STORE this, key, value
+	#DELETE this, key
+	#CLEAR this
+	#EXISTS this, key
+	#DESTROY this
+	#UNTIE this
+
+package Authen::PAM::Module;
 
 sub new { # Manditory. Call if overloaded.
 	my $invocant = shift;
 	my $class = ref($invocant)||$invocant;
 	my $self = {pamh=>shift};
-	$self->{me}=shift;
-	$self->{initial}{flag}=shift;
-	$self->{initial}{arg}=[@_];
 	#$self->{data}={}; # for private storage by child modules;
 	$self->{user_prompt}="user:" unless $self->{user_prompt};
 	bless ($self, $class);
@@ -324,25 +339,36 @@ sub new { # Manditory. Call if overloaded.
 	tie *STDOUT, 'Authen::PAM::Module::_out', $self;
 	return $self;
 }
-
+sub CLEANUP($){
+	return;
+}
 sub DESTROY {
 	my $self = shift;
-	untie *STDERR;
-	untie *STDOUT;
 	untie $self->{user};
-	untie %{$self->{env}};
 	untie %{$self->{item}};
+	untie %{$self->{env}};
 	delete $self->{internal};
-	delete $self->{initial};
 	delete $self->{item};
 	delete $self->{env};
 	delete $self->{user};
 	delete $self->{pamh};
-	delete $self->{me};
 	delete $self->{user_prompt};
+	delete $self->{conv_fn};
+	delete $self->{faild_fn};
+	delete $self->{list};
 	warn join ' ', keys %$self if %$self;
 	warn "@_" if @_;
 	return "0 but true";
+}
+{
+	my %module;
+	sub _put_module_handle($$){	return $module{$_[0]}=$_[1];}
+	sub _get_module_handle($){	return $module{$_[0]};}
+	sub _unload_all($){
+		$_->CLEANUP($_[0]) foreach keys %module;%module=();
+		untie *STDOUT;
+		untie *STDERR;
+	}
 }
 
 sub map_constant($){
@@ -350,13 +376,13 @@ sub map_constant($){
 	s|^[ 	]*||;
 	s|[ 	]*$||;
 	return Authen::PAM::Module::PAM_CHANGE_EXPIRED_AUTHTOK()	if /CHANGE_EXPIRED_AUTHTOK$/i;
-	return Authen::PAM::Module::PAM_AUTHTOK_DISABLE_AGING()	if /AUTHTOK_DISABLE_AGING$/i;
-	return Authen::PAM::Module::PAM_DISALLOW_NULL_AUTHTOK()	if /DISALLOW_NULL_AUTHTOK$/i;
-	return Authen::PAM::Module::PAM_AUTHTOK_RECOVERY_ERR()	if /AUTHTOK_RECOVERY_ERR$/i;
-	return Authen::PAM::Module::PAM_AUTHTOK_LOCK_BUSY()	if /AUTHTOK_LOCK_BUSY$/i;
-	return Authen::PAM::Module::PAM_CRED_INSUFFICIENT()	if /CRED_INSUFFICIENT$/i;
-	return Authen::PAM::Module::PAM_REINITIALIZE_CRED()	if /REINITIALIZE_CRED$/i;
-	return Authen::PAM::Module::PAM_AUTHINFO_UNAVAIL()	if /AUTHINFO_UNAVAIL$/i;
+	return Authen::PAM::Module::PAM_AUTHTOK_DISABLE_AGING()	       if /AUTHTOK_DISABLE_AGING$/i;
+	return Authen::PAM::Module::PAM_DISALLOW_NULL_AUTHTOK()	      if /DISALLOW_NULL_AUTHTOK$/i;
+	return Authen::PAM::Module::PAM_AUTHTOK_RECOVERY_ERR()	     if /AUTHTOK_RECOVERY_ERR$/i;
+	return Authen::PAM::Module::PAM_AUTHTOK_LOCK_BUSY()	    if /AUTHTOK_LOCK_BUSY$/i;
+	return Authen::PAM::Module::PAM_CRED_INSUFFICIENT()	   if /CRED_INSUFFICIENT$/i;
+	return Authen::PAM::Module::PAM_REINITIALIZE_CRED()	  if /REINITIALIZE_CRED$/i;
+	return Authen::PAM::Module::PAM_AUTHINFO_UNAVAIL()	 if /AUTHINFO_UNAVAIL$/i;
 	return Authen::PAM::Module::PAM_NEW_AUTHTOK_REQD()	if /NEW_AUTHTOK_REQD$/i;
 	return Authen::PAM::Module::PAM_AUTHTOK_EXPIRED()	if /AUTHTOK_EXPIRED$/i;
 	return Authen::PAM::Module::PAM_PROMPT_ECHO_OFF()	if /PROMPT_ECHO_OFF$/i;
@@ -365,13 +391,13 @@ sub map_constant($){
 	return Authen::PAM::Module::PAM_NO_MODULE_DATA()	if /NO_MODULE_DATA$/i;
 	return Authen::PAM::Module::PAM_PROMPT_ECHO_ON()	if /PROMPT_ECHO_ON$/i;
 	return Authen::PAM::Module::PAM_UPDATE_AUTHTOK()	if /UPDATE_AUTHTOK$/i;
-	return Authen::PAM::Module::PAM_BINARY_PROMPT()	if /BINARY_PROMPT$/i;
-	return Authen::PAM::Module::PAM_ACCT_EXPIRED()	if /ACCT_EXPIRED$/i;
-	return Authen::PAM::Module::PAM_AUTHTOK_TYPE()	if /AUTHTOK_TYPE$/i;
-	return Authen::PAM::Module::PAM_CRED_EXPIRED()	if /CRED_EXPIRED$/i;
-	return Authen::PAM::Module::PAM_CRED_UNAVAIL()	if /CRED_UNAVAIL$/i;
-	return Authen::PAM::Module::PAM_DATA_REPLACE()	if /DATA_REPLACE$/i;
-	return Authen::PAM::Module::PAM_PRELIM_CHECK()	if /PRELIM_CHECK$/i;
+	return Authen::PAM::Module::PAM_BINARY_PROMPT()	       if /BINARY_PROMPT$/i;
+	return Authen::PAM::Module::PAM_ACCT_EXPIRED()	      if /ACCT_EXPIRED$/i;
+	return Authen::PAM::Module::PAM_AUTHTOK_TYPE()	     if /AUTHTOK_TYPE$/i;
+	return Authen::PAM::Module::PAM_CRED_EXPIRED()	    if /CRED_EXPIRED$/i;
+	return Authen::PAM::Module::PAM_CRED_UNAVAIL()	   if /CRED_UNAVAIL$/i;
+	return Authen::PAM::Module::PAM_DATA_REPLACE()	  if /DATA_REPLACE$/i;
+	return Authen::PAM::Module::PAM_PRELIM_CHECK()	 if /PRELIM_CHECK$/i;
 	return Authen::PAM::Module::PAM_REFRESH_CRED()	if /REFRESH_CRED$/i;
 	return Authen::PAM::Module::PAM_USER_UNKNOWN()	if /USER_UNKNOWN$/i;
 	return Authen::PAM::Module::PAM_AUTHTOK_ERR()	if /AUTHTOK_ERR$/i;
@@ -405,12 +431,12 @@ sub map_constant($){
 	return Authen::PAM::Module::PAM_SUCCESS()	if /SUCCESS$/i;
 	return Authen::PAM::Module::PAM_IGNORE()	if /IGNORE$/i;
 	return Authen::PAM::Module::PAM_SILENT()	if /SILENT$/i;
-	return Authen::PAM::Module::PAM_ABORT()	if /ABORT$/i;
-	return Authen::PAM::Module::PAM_RHOST()	if /RHOST$/i;
-	return Authen::PAM::Module::PAM_RUSER()	if /RUSER$/i;
-	return Authen::PAM::Module::PAM_CONV()	if /CONV$/i;
-	return Authen::PAM::Module::PAM_USER()	if /USER$/i;
-	return Authen::PAM::Module::PAM_TTY()	if /TTY$/i;
+	return Authen::PAM::Module::PAM_ABORT()	       if /ABORT$/i;
+	return Authen::PAM::Module::PAM_RHOST()	      if /RHOST$/i;
+	return Authen::PAM::Module::PAM_RUSER()	     if /RUSER$/i;
+	return Authen::PAM::Module::PAM_CONV()	    if /CONV$/i;
+	return Authen::PAM::Module::PAM_USER()	   if /USER$/i;
+	return Authen::PAM::Module::PAM_TTY()	  if /TTY$/i;
 	return undef;
 }
 sub intorconst($){

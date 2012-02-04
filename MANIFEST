@@ -1,14 +1,17 @@
-pam_perl.xs
-const.pl
+MANIFEST
 Makefile2
 Makefile.PL
-MANIFEST
-ppport.h
-README
-t/PAM-Module.t
 fallback/const-c.inc
 fallback/const-xs.inc
-Local/ExtUtils/Constant.pm
+const.pl
+const.c
+Module.xs
 lib/Authen/PAM/Module.pm
 lib/Authen/PAM/Module/test.pm
+lib/Authen/PAM/Module/BBS.pm
+ppport.h
+typemap
+README
+t/PAM-Module.t
+Local/ExtUtils/Constant.pm
 META.yml                                 Module meta-data (added by MakeMaker)
